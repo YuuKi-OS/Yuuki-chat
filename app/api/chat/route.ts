@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const HF_MODELS: Record<string, string> = {
-  "yuuki-v0.1":
-    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-v0.1",
-  "yuuki-3.7":
-    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-3.7",
-  "yuuki-best":
-    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-best",
+  "yuuki-v0.1": "YuuKi-OS/Yuuki-v0.1",
+  "yuuki-3.7": "YuuKi-OS/Yuuki-3.7",
+  "yuuki-best": "YuuKi-OS/Yuuki-best",
 };
 
 const YUUKI_API_MODELS: Record<string, string> = {
@@ -54,40 +51,29 @@ async function callYuukiApi(
 }
 
 /**
- * Calls HuggingFace Inference API directly with an hf_ token.
+ * Calls HuggingFace Inference API via the new router.huggingface.co endpoint.
+ * Uses the OpenAI-compatible chat completions format.
  */
 async function callHuggingFace(
   token: string,
   model: string,
   messages: { role: string; content: string }[]
 ) {
-  const modelUrl = HF_MODELS[model] || HF_MODELS["yuuki-best"];
+  const modelId = HF_MODELS[model] || HF_MODELS["yuuki-best"];
+  const url = `https://router.huggingface.co/hf-inference/models/${modelId}/v1/chat/completions`;
 
-  const prompt =
-    messages
-      .map((m) => {
-        if (m.role === "system") return `System: ${m.content}`;
-        if (m.role === "user") return `User: ${m.content}`;
-        if (m.role === "assistant") return `Assistant: ${m.content}`;
-        return m.content;
-      })
-      .join("\n") + "\nAssistant:";
-
-  const response = await fetch(modelUrl, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      inputs: prompt,
-      parameters: {
-        max_new_tokens: 1024,
-        temperature: 0.7,
-        top_p: 0.9,
-        repetition_penalty: 1.1,
-        return_full_text: false,
-      },
+      model: modelId,
+      messages,
+      max_tokens: 1024,
+      temperature: 0.7,
+      top_p: 0.9,
     }),
   });
 
@@ -99,30 +85,12 @@ async function callHuggingFace(
   }
 
   const data = await response.json();
-  let generatedText = "";
-
-  if (Array.isArray(data) && data[0]?.generated_text) {
-    generatedText = data[0].generated_text.trim();
-  } else if (typeof data === "string") {
-    generatedText = data.trim();
-  } else if (data?.generated_text) {
-    generatedText = data.generated_text.trim();
-  } else {
-    generatedText = JSON.stringify(data);
-  }
-
-  // Clean up artifacts
-  const cutoffs = ["User:", "System:", "\nUser", "\nSystem"];
-  for (const cutoff of cutoffs) {
-    const idx = generatedText.indexOf(cutoff);
-    if (idx > 0) generatedText = generatedText.substring(0, idx).trim();
-  }
+  const content =
+    data.choices?.[0]?.message?.content?.trim() || "No response generated.";
 
   return {
-    content:
-      generatedText ||
-      "I received your message but couldn't generate a response. Please try again.",
-    id: `chatcmpl-${Date.now()}`,
+    content,
+    id: data.id || `chatcmpl-${Date.now()}`,
     model,
   };
 }
