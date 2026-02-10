@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 const HF_MODELS: Record<string, string> = {
   "yuuki-v0.1":
-    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-v0.1":
-    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-3.7":
+    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-v0.1",
+  "yuuki-3.7":
+    "https://router.huggingface.co/models/YuuKi-OS/Yuuki-3.7",
+  "yuuki-best":
     "https://router.huggingface.co/models/YuuKi-OS/Yuuki-best",
 };
 
