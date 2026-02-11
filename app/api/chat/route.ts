@@ -29,7 +29,7 @@ async function callYuukiAPI(
     },
     body: JSON.stringify({
       prompt,
-      max_new_tokens: 1024,
+      max_new_tokens: 512,
       temperature: 0.7,
       model,
     }),
