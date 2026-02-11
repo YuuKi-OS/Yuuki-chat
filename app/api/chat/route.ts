@@ -1,39 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const HF_MODELS: Record<string, string> = {
-  "yuuki-v0.1": "YuuKi-OS/Yuuki-v0.1",
-  "yuuki-3.7": "YuuKi-OS/Yuuki-3.7",
-  "yuuki-best": "YuuKi-OS/Yuuki-best",
-};
+const YUUKI_API_URL = "https://opceanai-yuuki-api.hf.space/generate";
 
-const YUUKI_API_MODELS: Record<string, string> = {
-  "yuuki-v0.1": "yuuki-v0.1",
-  "yuuki-3.7": "yuuki-3.7",
-  "yuuki-best": "yuuki-best",
-};
+const VALID_MODELS = ["yuuki-best", "yuuki-3.7", "yuuki-v0.1"];
 
 /**
- * Calls the Yuuki API (yuuki-api.vercel.app) with a yk- token.
- * This is an OpenAI-compatible endpoint.
+ * Calls the Yuuki API hosted on HuggingFace Spaces.
+ * Open platform — no token required.
  */
-async function callYuukiApi(
-  token: string,
-  model: string,
-  messages: { role: string; content: string }[]
+async function callYuukiAPI(
+  messages: { role: string; content: string }[],
+  model: string
 ) {
-  const modelId = YUUKI_API_MODELS[model] || "yuuki-best";
+  // Build a prompt from the message history
+  const prompt = messages
+    .map((m) => {
+      if (m.role === "system") return `System: ${m.content}`;
+      if (m.role === "user") return `User: ${m.content}`;
+      if (m.role === "assistant") return `Assistant: ${m.content}`;
+      return m.content;
+    })
+    .join("\n") + "\nAssistant:";
 
-  const response = await fetch("https://yuuki-api.vercel.app/api/chat", {
+  const response = await fetch(YUUKI_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      model: modelId,
-      messages,
-      max_tokens: 1024,
+      prompt,
+      max_new_tokens: 1024,
       temperature: 0.7,
+      model,
     }),
   });
 
@@ -45,52 +43,36 @@ async function callYuukiApi(
   }
 
   const data = await response.json();
-  const content =
-    data.choices?.[0]?.message?.content || data.content || "No response";
-  return { content, id: data.id || `chatcmpl-${Date.now()}`, model: modelId };
-}
 
-/**
- * Calls HuggingFace Inference API via the new router.huggingface.co endpoint.
- * Uses the OpenAI-compatible chat completions format.
- */
-async function callHuggingFace(
-  token: string,
-  model: string,
-  messages: { role: string; content: string }[]
-) {
-  const modelId = HF_MODELS[model] || HF_MODELS["yuuki-best"];
-  const url = `https://router.huggingface.co/hf-inference/models/${modelId}/v1/chat/completions`;
+  // Handle various response formats from the HF Space
+  let generatedText = "";
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: modelId,
-      messages,
-      max_tokens: 1024,
-      temperature: 0.7,
-      top_p: 0.9,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `HuggingFace error (${response.status}): ${errorText.slice(0, 200)}`
-    );
+  if (typeof data === "string") {
+    generatedText = data.trim();
+  } else if (data?.generated_text) {
+    generatedText = data.generated_text.trim();
+  } else if (data?.response) {
+    generatedText = data.response.trim();
+  } else if (data?.output) {
+    generatedText = data.output.trim();
+  } else if (Array.isArray(data) && data[0]?.generated_text) {
+    generatedText = data[0].generated_text.trim();
+  } else {
+    generatedText = JSON.stringify(data);
   }
 
-  const data = await response.json();
-  const content =
-    data.choices?.[0]?.message?.content?.trim() || "No response generated.";
+  // Clean up conversational artifacts
+  const cutoffs = ["User:", "System:", "\nUser", "\nSystem"];
+  for (const cutoff of cutoffs) {
+    const idx = generatedText.indexOf(cutoff);
+    if (idx > 0) generatedText = generatedText.substring(0, idx).trim();
+  }
 
   return {
-    content,
-    id: data.id || `chatcmpl-${Date.now()}`,
+    content:
+      generatedText ||
+      "I received your message but couldn't generate a response. Please try again.",
+    id: `chatcmpl-${Date.now()}`,
     model,
   };
 }
@@ -98,7 +80,7 @@ async function callHuggingFace(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { messages, model, token, tokenSource } = body;
+    const { messages, model } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -108,47 +90,11 @@ export async function POST(req: NextRequest) {
     }
 
     const modelKey = model || "yuuki-best";
-    if (!HF_MODELS[modelKey]) {
+    if (!VALID_MODELS.includes(modelKey)) {
       return NextResponse.json({ error: "Invalid model" }, { status: 400 });
     }
 
-    let result;
-
-    if (tokenSource === "demo") {
-      // Demo mode: use server-side HF_DEMO_TOKEN directly against HuggingFace
-      const demoToken = process.env.HF_DEMO_TOKEN;
-      if (!demoToken) {
-        return NextResponse.json(
-          { error: "Demo token not configured on server" },
-          { status: 500 }
-        );
-      }
-      result = await callHuggingFace(demoToken, modelKey, messages);
-    } else if (tokenSource === "yuuki-api") {
-      // Yuuki API: yk- tokens go to yuuki-api.vercel.app
-      if (!token) {
-        return NextResponse.json(
-          { error: "No API token provided" },
-          { status: 401 }
-        );
-      }
-      result = await callYuukiApi(token, modelKey, messages);
-    } else if (tokenSource === "huggingface") {
-      // HuggingFace: hf_ tokens go directly to HF Inference API
-      if (!token) {
-        return NextResponse.json(
-          { error: "No API token provided" },
-          { status: 401 }
-        );
-      }
-      result = await callHuggingFace(token, modelKey, messages);
-    } else {
-      return NextResponse.json(
-        { error: "Invalid token source" },
-        { status: 400 }
-      );
-    }
-
+    const result = await callYuukiAPI(messages, modelKey);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

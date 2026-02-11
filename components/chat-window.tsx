@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useAuth } from "@/lib/auth-context";
 import { useYuukiTheme } from "@/lib/theme-context";
 import { ChatMessage, type ChatMsg } from "./chat-message";
 import { ModelSelector } from "./model-selector";
@@ -9,7 +8,6 @@ import { ThemePanel } from "./theme-panel";
 import {
   Send,
   Palette,
-  LogOut,
   Globe,
   Youtube,
   Loader2,
@@ -28,7 +26,6 @@ interface Conversation {
 }
 
 export function ChatWindow() {
-  const { token, tokenSource, logout } = useAuth();
   const { accentColor } = useYuukiTheme();
 
   const [conversations, setConversations] = useState<Conversation[]>([
@@ -177,8 +174,6 @@ export function ChatWindow() {
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           model,
-          token: tokenSource === "demo" ? null : token,
-          tokenSource,
         }),
       });
 
@@ -316,14 +311,7 @@ export function ChatWindow() {
             <Palette className="h-4 w-4" />
             Theme
           </button>
-          <button
-            type="button"
-            onClick={logout}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </button>
+
         </div>
       </aside>
 
@@ -341,11 +329,7 @@ export function ChatWindow() {
             </button>
             <ModelSelector value={model} onChange={setModel} />
             <span className="hidden sm:inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-              {tokenSource === "demo"
-                ? "demo"
-                : tokenSource === "yuuki-api"
-                  ? "yk-api"
-                  : "hf"}
+              open
             </span>
           </div>
 
